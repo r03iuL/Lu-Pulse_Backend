@@ -302,61 +302,74 @@ async function run() {
     // API to Fetch All Notices
     app.get("/notices", verifyToken, async (req, res) => {
       try {
-        const { adminRole, department } = req.user; 
-    
-        let query = {}; 
-    
+        const { adminRole, department } = req.user;
+
+        let query = {};
+
         // If the user is NOT an admin/superadmin, apply filtering
         if (adminRole !== "admin" && adminRole !== "superadmin") {
           query = {
             $or: [
               { targetAudience: { $in: ["All", req.user.userType] } },
-              { department: { $in: [department] } } 
+              { department: { $in: [department] } },
             ],
           };
         }
-    
+
         // Fetch notices based on the query
         const notices = await noticeCollection.find(query).toArray();
-    
+
         res.status(200).json(notices);
       } catch (error) {
         console.error("Error fetching notices:", error);
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
-    
 
     // API to Create New Notice
     app.post("/notices", verifyToken, verifyAdmin, async (req, res) => {
       try {
-        const { title, category, description, image, date, targetAudience, department } = req.body;
-    
-       
-        if (!title || !category || !description || !date || !targetAudience || !department) {
+        const {
+          title,
+          category,
+          description,
+          image,
+          date,
+          targetAudience,
+          department,
+        } = req.body;
+
+        if (
+          !title ||
+          !category ||
+          !description ||
+          !date ||
+          !targetAudience ||
+          !department
+        ) {
           return res.status(400).json({ message: "All fields are required" });
         }
-    
-        
+
         const newNotice = {
           title,
           category,
           description,
-          image, 
+          image,
           date,
-          targetAudience, 
-          department, 
+          targetAudience,
+          department,
           createdAt: new Date(),
         };
-    
-        
+
         const result = await noticeCollection.insertOne(newNotice);
-    
+
         if (!result.insertedId) {
           return res.status(500).json({ message: "Failed to create notice" });
         }
-    
-        res.status(201).json({ message: "Notice created successfully", notice: newNotice });
+
+        res
+          .status(201)
+          .json({ message: "Notice created successfully", notice: newNotice });
       } catch (error) {
         console.error("Error creating notice:", error);
         res.status(500).json({ message: "Internal Server Error" });
@@ -364,22 +377,83 @@ async function run() {
     });
 
     // API to Fetch a Specific Notice by ID
-    app.get("/notices/:id", verifyToken,  async (req, res) => {
+    app.get("/notices/:id", verifyToken, async (req, res) => {
       try {
         const { id } = req.params;
-        const notice = await noticeCollection.findOne({ _id: new ObjectId(id) });
-    
+        const notice = await noticeCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
         if (!notice) {
           return res.status(404).json({ message: "Notice not found" });
         }
-    
+
         res.json(notice);
       } catch (error) {
         console.error("Error fetching notice:", error);
         res.status(500).json({ message: "Internal server error" });
       }
     });
-    
+
+    // API to Update an Existing Notice
+    app.put("/notices/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const {
+          title,
+          category,
+          description,
+          image,
+          date,
+          targetAudience,
+          department,
+        } = req.body;
+
+        // Ensure required fields are provided
+        if (
+          !title ||
+          !category ||
+          !description ||
+          !date ||
+          !targetAudience ||
+          !department
+        ) {
+          return res.status(400).json({ message: "All fields are required" });
+        }
+
+        // Construct the update object
+        const updatedNotice = {
+          title,
+          category,
+          description,
+          image, // Can be new or existing image URL
+          date,
+          targetAudience,
+          department,
+          updatedAt: new Date(),
+        };
+
+        // Find and update the notice
+        const result = await noticeCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedNotice }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: "Notice not found" });
+        }
+
+        res
+          .status(200)
+          .json({
+            message: "Notice updated successfully",
+            notice: updatedNotice,
+          });
+      } catch (error) {
+        console.error("Error updating notice:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
 
     // API to Delete Notice
     app.delete("/notices/:id", verifyToken, verifyAdmin, async (req, res) => {
