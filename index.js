@@ -21,23 +21,6 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
-const verifyToken = (req, res, next) => {
-  const token = req.cookies.token;
-
-  if (!token) {
-    return res.status(401).json({ message: "Unauthorized: No token found!" });
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ message: "Forbidden: Invalid token!" });
-    }
-
-    req.user = decoded; //  Attach decoded user data to request
-    next();
-  });
-};
-
 // Cloudinary Configuration
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
@@ -49,7 +32,7 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: "LuPulse", 
+    folder: "LuPulse",
     allowed_formats: ["jpg", "png", "jpeg"],
   },
 });
@@ -75,66 +58,136 @@ async function run() {
     const eventsCollection = database.collection("Events");
     const noticeCollection = database.collection("Notices");
     const userCollection = database.collection("Users");
-    const AdminCollection = database.collection("Admins");
 
-    // User Authentication (Login) - Generates JWT Token
+    // Middleware to verify JWT token
+    const verifyToken = async (req, res, next) => {
+      const token = req.cookies.token;
+
+      if (!token) {
+        return res
+          .status(401)
+          .json({ message: "Unauthorized: No token found!" });
+      }
+
+      jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
+        if (err) {
+          return res.status(403).json({ message: "Forbidden: Invalid token!" });
+        }
+
+        try {
+          // Fetch user data from database
+          const user = await userCollection.findOne({ email: decoded.email });
+
+          if (!user) {
+            return res.status(404).json({ message: "User not found!" });
+          }
+
+          req.user = {
+            email: user.email,
+            adminRole: user.adminRole || "user",
+            department: user.department,
+          };
+
+          next();
+        } catch (error) {
+          console.error("Error verifying user:", error);
+          res.status(500).json({ message: "Internal Server Error" });
+        }
+      });
+    };
+
+    // Middleware to verify Admin role
+    const verifyAdmin = (req, res, next) => {
+      if (
+        !req.user ||
+        (req.user.adminRole !== "admin" && req.user.adminRole !== "superadmin")
+      ) {
+        return res
+          .status(403)
+          .json({ message: "Forbidden: Admin access required!" });
+      }
+      next();
+    };
+
+    // Middleware to verify SuperAdmin role
+    const verifySuperAdmin = (req, res, next) => {
+      if (!req.user || req.user.adminRole !== "superadmin") {
+        return res
+          .status(403)
+          .json({ message: "Forbidden: Superadmin access required!" });
+      }
+      next();
+    };
+
+    // API for User Authentication (Login) - Generates JWT Token
     app.post("/login", async (req, res) => {
-  const { uid, email, emailVerified } = req.body;
+      const { uid, email, emailVerified } = req.body;
 
-  try {
-    // Fetch user from MongoDB
-    const user = await userCollection.findOne({ email });
+      try {
+        // Fetch user from MongoDB
+        const user = await userCollection.findOne({ email });
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
 
-    // Check if email is verified
-    if (!emailVerified) {
-      return res.status(403).json({ message: "Email is not verified. Please verify your email before logging in." });
-    }
+        // Check if email is verified
+        if (!emailVerified) {
+          return res.status(403).json({
+            message:
+              "Email is not verified. Please verify your email before logging in.",
+          });
+        }
 
-    // Generate JWT Token with `isAdmin` field
-    const token = jwt.sign(
-      {
-        uid: user.uid,
-        email: user.email,
-        emailVerified: user.emailVerified,
-        isAdmin: user.isAdmin,
-        department: user.department, 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" } // Set expiration time
-    );
+        // Generate JWT Token with user data
+        const token = jwt.sign(
+          {
+            uid: user.uid,
+            email: user.email,
+            emailVerified: user.emailVerified,
+            adminRole: user.adminRole,
+            department: user.department,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: "1h" }
+        );
 
-    // Store JWT in HttpOnly cookie
-    res.cookie("token", token, {
-      httpOnly: true,
-      secure: false, // Set to true if your website is served over HTTPS
+        // Store JWT in HttpOnly cookie
+        res.cookie("token", token, {
+          httpOnly: true,
+          secure: false,
+        });
+
+        res.status(200).json({ message: "Login successful", success: true });
+      } catch (error) {
+        console.error("Login Error:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
     });
 
-    res.status(200).json({ message: "Login successful", success: true });
-  } catch (error) {
-    console.error("Login Error:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-
-
-    // User Authentication (Logout) - Clears JWT Token
+    // API for User Authentication (Logout) - Clears JWT Token
     app.post("/logout", (req, res) => {
-      res.clearCookie("token", { httpOnly: true, secure: false }); // Clears the JWT cookie
+      res.clearCookie("token", { httpOnly: true, secure: false });
       res.status(200).json({ message: "Logout successful" });
     });
-    
 
-    // User Registration (Signup)
+    // API for User Registration (Signup)
     app.post("/signup", async (req, res) => {
       try {
-        const { fullName, id, email, userType, designation, department, image } = req.body;
-        
-        if (!fullName || !id || !email || !userType || !designation || !department ) {
-          return res.status(400).json({ message: "All fields are required" });
+        const {
+          fullName,
+          id,
+          email,
+          userType,
+          designation,
+          department,
+          image,
+        } = req.body;
+
+        if (!fullName || !id || !email || !userType || !department) {
+          return res
+            .status(400)
+            .json({ message: "All required fields must be provided" });
         }
 
         const existingUser = await userCollection.findOne({ email });
@@ -149,19 +202,21 @@ async function run() {
           userType,
           department,
           image,
-          designation: userType === "faculty" || userType === "staff" ? designation : null,
+          designation,
           createdAt: new Date(),
-          isAdmin: false,
+          adminRole: "user",
         };
-        
+
         await userCollection.insertOne(userData);
-        res.status(201).json({ message: "User registered successfully", user: userData });
+        res
+          .status(201)
+          .json({ message: "User registered successfully", user: userData });
       } catch (error) {
         res.status(500).json({ message: "Error registering user", error });
       }
     });
 
-    // Fetch All Users
+    // API to Fetch All Users
     app.get("/users", async (req, res) => {
       try {
         const users = await userCollection.find().toArray();
@@ -171,34 +226,70 @@ async function run() {
       }
     });
 
-    // Fetch a Specific User by Email
+    // API to Fetch a Specific User by Email
     app.get("/users/:email", verifyToken, async (req, res) => {
-      const { email } = req.params; // Email from request
-      const tokenEmail = req.user.email; // Email from JWT token
-      const isAdmin = req.user.isAdmin; // Admin status from JWT token
-    
+      const { email } = req.params;
+      const tokenEmail = req.user.email;
+      const adminRole = req.user.adminRole;
       try {
-        //  Allow only the authenticated user OR an admin to access the data
-        if (email !== tokenEmail && !isAdmin) {
-          return res.status(403).json({ message: "Forbidden: You can only access your own data!" });
+        if (
+          email !== tokenEmail &&
+          adminRole !== "admin" &&
+          adminRole !== "superadmin"
+        ) {
+          return res
+            .status(403)
+            .json({ message: "Forbidden: You can only access your own data!" });
         }
-    
-        // Fetch user from MongoDB
-        const user = await userCollection.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } });
-    
+
+        const user = await userCollection.findOne({
+          email: { $regex: new RegExp(`^${email}$`, "i") },
+        });
+
         if (!user) {
           return res.status(404).json({ message: "User not found" });
         }
-    
+
         res.status(200).json(user);
       } catch (error) {
         console.error("Error fetching user:", error);
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
-    
 
-    // Fetch All Events
+    // API to Update User Role to Admin
+    app.patch(
+      "/users/:email/role",
+      verifyToken,
+      verifySuperAdmin,
+      async (req, res) => {
+        try {
+          const { email } = req.params;
+
+          const role = "admin";
+
+          const result = await userCollection.updateOne(
+            { email },
+            { $set: { adminRole: role } }
+          );
+
+          if (result.modifiedCount === 0) {
+            return res
+              .status(404)
+              .json({ message: "User not found or already an admin." });
+          }
+
+          res
+            .status(200)
+            .json({ message: "User promoted to admin successfully." });
+        } catch (error) {
+          console.error("Error updating user role:", error);
+          res.status(500).json({ message: "Internal Server Error" });
+        }
+      }
+    );
+
+    // API to Fetch All Events
     app.get("/events", async (req, res) => {
       try {
         const events = await eventsCollection.find().toArray();
@@ -208,25 +299,106 @@ async function run() {
       }
     });
 
-    // Fetch All Notices
-    app.get("/notices", async (req, res) => {
+    // API to Fetch All Notices
+    app.get("/notices", verifyToken, async (req, res) => {
       try {
-        const notices = await noticeCollection.find().toArray();
+        const { adminRole, department } = req.user; 
+    
+        let query = {}; 
+    
+        // If the user is NOT an admin/superadmin, apply filtering
+        if (adminRole !== "admin" && adminRole !== "superadmin") {
+          query = {
+            $or: [
+              { targetAudience: { $in: ["All", req.user.userType] } },
+              { department: { $in: [department] } } 
+            ],
+          };
+        }
+    
+        // Fetch notices based on the query
+        const notices = await noticeCollection.find(query).toArray();
+    
         res.status(200).json(notices);
       } catch (error) {
-        res.status(500).json({ message: "Error fetching notices", error });
+        console.error("Error fetching notices:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+    
+
+    // API to Create New Notice
+    app.post("/notices", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { title, category, description, image, date, targetAudience, department } = req.body;
+    
+       
+        if (!title || !category || !description || !date || !targetAudience || !department) {
+          return res.status(400).json({ message: "All fields are required" });
+        }
+    
+        
+        const newNotice = {
+          title,
+          category,
+          description,
+          image, 
+          date,
+          targetAudience, 
+          department, 
+          createdAt: new Date(),
+        };
+    
+        
+        const result = await noticeCollection.insertOne(newNotice);
+    
+        if (!result.insertedId) {
+          return res.status(500).json({ message: "Failed to create notice" });
+        }
+    
+        res.status(201).json({ message: "Notice created successfully", notice: newNotice });
+      } catch (error) {
+        console.error("Error creating notice:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+    
+
+    // API to Delete Notice
+    app.delete("/notices/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const result = await noticeCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: "Notice not found" });
+        }
+
+        res.status(200).json({ message: "Notice deleted successfully" });
+      } catch (error) {
+        console.error("Error deleting notice:", error);
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
-    // Upload Image to Cloudinary
+    // API to Upload Image to Cloudinary
     app.post("/upload-image", upload.single("image"), async (req, res) => {
       try {
         if (!req.file) {
           return res.status(400).json({ message: "No file uploaded" });
         }
-        res.status(200).json({ success: true, message: "Image uploaded successfully", imageUrl: req.file.path });
+        res.status(200).json({
+          success: true,
+          message: "Image uploaded successfully",
+          imageUrl: req.file.path,
+        });
       } catch (error) {
-        res.status(500).json({ success: false, message: "Error uploading image" });
+        res
+          .status(500)
+          .json({ success: false, message: "Error uploading image" });
       }
     });
 
