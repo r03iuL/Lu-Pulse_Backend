@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
@@ -360,6 +360,23 @@ async function run() {
       } catch (error) {
         console.error("Error creating notice:", error);
         res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // API to Fetch a Specific Notice by ID
+    app.get("/notices/:id", verifyToken,  async (req, res) => {
+      try {
+        const { id } = req.params;
+        const notice = await noticeCollection.findOne({ _id: new ObjectId(id) });
+    
+        if (!notice) {
+          return res.status(404).json({ message: "Notice not found" });
+        }
+    
+        res.json(notice);
+      } catch (error) {
+        console.error("Error fetching notice:", error);
+        res.status(500).json({ message: "Internal server error" });
       }
     });
     
