@@ -49,24 +49,10 @@ const client = new MongoClient(uri, {
   },
 });
 
-// Logging Middleware
-const logRequest = (req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-};
-
-const logError = (error, req, res, next) => {
-  console.error(`[${new Date().toISOString()}] Error: ${error.message}`);
-  next(error);
-};
-
-app.use(logRequest);
-app.use(logError);
-
 async function run() {
   try {
     // Connect to MongoDB
-    await client.connect();
+    //await client.connect();
 
     // Database & Collections
     const database = client.db("LuPulse");
@@ -81,23 +67,20 @@ async function run() {
       if (!token) {
         return res
           .status(401)
-          .json({ message: "Unauthorized: Please log in to access this resource." });
+          .json({ message: "Unauthorized: No token found!" });
       }
 
       jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
         if (err) {
-          return res
-            .status(403)
-            .json({ message: "Forbidden: Invalid or expired token. Please log in again." });
+          return res.status(403).json({ message: "Forbidden: Invalid token!" });
         }
 
         try {
+          // Fetch user data from database
           const user = await userCollection.findOne({ email: decoded.email });
 
           if (!user) {
-            return res
-              .status(404)
-              .json({ message: "User not found: The account associated with this token does not exist." });
+            return res.status(404).json({ message: "User not found!" });
           }
 
           req.user = {
@@ -109,9 +92,7 @@ async function run() {
           next();
         } catch (error) {
           console.error("Error verifying user:", error);
-          res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to verify your account. Please try again later." });
+          res.status(500).json({ message: "Internal Server Error" });
         }
       });
     };
@@ -124,7 +105,7 @@ async function run() {
       ) {
         return res
           .status(403)
-          .json({ message: "Forbidden: You do not have permission to access this resource." });
+          .json({ message: "Forbidden: Admin access required!" });
       }
       next();
     };
@@ -134,7 +115,7 @@ async function run() {
       if (!req.user || req.user.adminRole !== "superadmin") {
         return res
           .status(403)
-          .json({ message: "Forbidden: Superadmin access is required to perform this action." });
+          .json({ message: "Forbidden: Superadmin access required!" });
       }
       next();
     };
@@ -144,20 +125,22 @@ async function run() {
       const { uid, email, emailVerified } = req.body;
 
       try {
+        // Fetch user from MongoDB
         const user = await userCollection.findOne({ email });
 
         if (!user) {
-          return res
-            .status(404)
-            .json({ message: "User not found: The provided email does not match any account." });
+          return res.status(404).json({ message: "User not found" });
         }
 
+        // Check if email is verified
         if (!emailVerified) {
-          return res
-            .status(403)
-            .json({ message: "Email not verified: Please verify your email before logging in." });
+          return res.status(403).json({
+            message:
+              "Email is not verified. Please verify your email before logging in.",
+          });
         }
 
+        // Generate JWT Token with user data
         const token = jwt.sign(
           {
             uid: user.uid,
@@ -170,17 +153,16 @@ async function run() {
           { expiresIn: "1h" }
         );
 
+        // Store JWT in HttpOnly cookie
         res.cookie("token", token, {
           secure: process.env.NODE_ENV === "production",
           sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
         });
 
-        res.status(200).json({ message: "Login successful. Welcome back!", success: true });
+        res.status(200).json({ message: "Login successful", success: true });
       } catch (error) {
         console.error("Login Error:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to process your login request. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -191,7 +173,7 @@ async function run() {
         secure: process.env.NODE_ENV === "production",
         sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       });
-      res.status(200).json({ message: "Logout successful. You have been signed out." });
+      res.status(200).json({ message: "Logout successful" });
     });
 
     // API for User Registration (Signup)
@@ -210,14 +192,12 @@ async function run() {
         if (!fullName || !id || !email || !userType || !department) {
           return res
             .status(400)
-            .json({ message: "Validation Error: All required fields must be provided." });
+            .json({ message: "All required fields must be provided" });
         }
 
         const existingUser = await userCollection.findOne({ email });
         if (existingUser) {
-          return res
-            .status(400)
-            .json({ message: "Account already exists: The provided email is already registered." });
+          return res.status(400).json({ message: "User already exists" });
         }
 
         const userData = {
@@ -235,12 +215,9 @@ async function run() {
         await userCollection.insertOne(userData);
         res
           .status(201)
-          .json({ message: "Registration successful. Welcome to LuPulse!", user: userData });
+          .json({ message: "User registered successfully", user: userData });
       } catch (error) {
-        console.error("Signup Error:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to complete your registration. Please try again later." });
+        res.status(500).json({ message: "Error registering user", error });
       }
     });
 
@@ -250,10 +227,7 @@ async function run() {
         const users = await userCollection.find().toArray();
         res.status(200).json(users);
       } catch (error) {
-        console.error("Error fetching users:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to retrieve user data. Please try again later." });
+        res.status(500).json({ message: "Error fetching users", error });
       }
     });
 
@@ -262,7 +236,6 @@ async function run() {
       const { email } = req.params;
       const tokenEmail = req.user.email;
       const adminRole = req.user.adminRole;
-
       try {
         if (
           email !== tokenEmail &&
@@ -271,7 +244,7 @@ async function run() {
         ) {
           return res
             .status(403)
-            .json({ message: "Forbidden: You can only access your own account information." });
+            .json({ message: "Forbidden: You can only access your own data!" });
         }
 
         const user = await userCollection.findOne({
@@ -279,17 +252,13 @@ async function run() {
         });
 
         if (!user) {
-          return res
-            .status(404)
-            .json({ message: "User not found: The requested account does not exist." });
+          return res.status(404).json({ message: "User not found" });
         }
 
         res.status(200).json(user);
       } catch (error) {
         console.error("Error fetching user:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to retrieve user data. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -299,28 +268,32 @@ async function run() {
       const { fullName, designation, image } = req.body;
 
       try {
+        // Check if user is trying to update their own profile or if they're an admin
         if (
           email !== req.user.email &&
           req.user.adminRole !== "admin" &&
           req.user.adminRole !== "superadmin"
         ) {
-          return res
-            .status(403)
-            .json({ message: "Forbidden: You can only update your own profile." });
+          return res.status(403).json({
+            message: "Forbidden: You can only update your own profile.",
+          });
         }
 
+        // Validate that required fields are provided
         if (!fullName || !designation) {
           return res
             .status(400)
-            .json({ message: "Validation Error: Full Name and Designation are required." });
+            .json({ message: "Full Name and Designation are required." });
         }
 
         const updatedUser = { fullName, designation };
 
+        // If an image URL is being provided, use it (no need to handle image upload here)
         if (image) {
-          updatedUser.image = image;
+          updatedUser.image = image; // Set the image URL directly
         }
 
+        // Update the user document in MongoDB
         const result = await userCollection.updateOne(
           { email },
           { $set: updatedUser }
@@ -329,18 +302,17 @@ async function run() {
         if (result.modifiedCount === 0) {
           return res
             .status(404)
-            .json({ message: "No changes made: The user profile was not updated." });
+            .json({ message: "User not found or no changes made" });
         }
 
+        // Return success message with updated user data
         res.status(200).json({
-          message: "Profile updated successfully. Your changes have been saved.",
+          message: "Profile updated successfully",
           user: { ...updatedUser, email },
         });
       } catch (error) {
         console.error("Error updating user profile:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to update your profile. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -353,19 +325,20 @@ async function run() {
         try {
           const { email } = req.params;
 
+          // Check if user exists
           const user = await userCollection.findOne({ email });
           if (!user) {
-            return res
-              .status(404)
-              .json({ message: "User not found: The requested account does not exist." });
+            return res.status(404).json({ message: "User not found" });
           }
 
+          // Prevent promoting SuperAdmins or existing admins
           if (user.adminRole === "admin" || user.adminRole === "superadmin") {
             return res
               .status(400)
-              .json({ message: "Validation Error: The user is already an Admin or SuperAdmin." });
+              .json({ message: "User is already an Admin or SuperAdmin" });
           }
 
+          // Promote user to Admin
           const result = await userCollection.updateOne(
             { email },
             { $set: { adminRole: "admin" } }
@@ -374,17 +347,15 @@ async function run() {
           if (result.modifiedCount === 0) {
             return res
               .status(500)
-              .json({ message: "Internal Server Error: Unable to update the user role." });
+              .json({ message: "Failed to promote user to Admin" });
           }
 
           res
             .status(200)
-            .json({ message: "User role updated successfully. The user is now an Admin." });
+            .json({ message: "User promoted to Admin successfully" });
         } catch (error) {
           console.error("Error promoting user:", error);
-          res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to update the user role. Please try again later." });
+          res.status(500).json({ message: "Internal Server Error" });
         }
       }
     );
@@ -398,36 +369,33 @@ async function run() {
         try {
           const { email } = req.params;
 
+          // Find the user by email
           const user = await userCollection.findOne({ email });
           if (!user) {
-            return res
-              .status(404)
-              .json({ message: "Admin not found: The requested account does not exist." });
+            return res.status(404).json({ message: "Admin not found" });
           }
 
+          // Prevent demotion of superadmin
           if (user.adminRole === "superadmin") {
             return res
               .status(403)
-              .json({ message: "Forbidden: Superadmins cannot be demoted." });
+              .json({ message: "Superadmins cannot be demoted" });
           }
 
+          // Update adminRole to "user"
           const result = await userCollection.updateOne(
             { email },
             { $set: { adminRole: "user" } }
           );
 
           if (result.modifiedCount === 0) {
-            return res
-              .status(500)
-              .json({ message: "Internal Server Error: Unable to demote the admin." });
+            return res.status(400).json({ message: "Failed to demote admin" });
           }
 
-          res.status(200).json({ message: "Admin demoted successfully. The user is now a regular user." });
+          res.status(200).json({ message: "Admin demoted successfully" });
         } catch (error) {
           console.error("Error demoting admin:", error);
-          res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to demote the admin. Please try again later." });
+          res.status(500).json({ message: "Internal Server Error" });
         }
       }
     );
@@ -437,33 +405,28 @@ async function run() {
       try {
         const { email } = req.params;
 
+        // Prevent SuperAdmin from being deleted
         const user = await userCollection.findOne({ email });
         if (!user) {
-          return res
-            .status(404)
-            .json({ message: "User not found: The requested account does not exist." });
+          return res.status(404).json({ message: "User not found" });
         }
-
         if (user.adminRole === "superadmin") {
           return res
             .status(403)
-            .json({ message: "Forbidden: Superadmins cannot be deleted." });
+            .json({ message: "Cannot delete a Super Admin" });
         }
 
+        // Delete user from database
         const result = await userCollection.deleteOne({ email });
 
         if (result.deletedCount === 0) {
-          return res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to delete the user." });
+          return res.status(500).json({ message: "Failed to delete user" });
         }
 
-        res.status(200).json({ message: "User deleted successfully. The account has been removed." });
+        res.status(200).json({ message: "User deleted successfully" });
       } catch (error) {
         console.error("Error deleting user:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to delete the user. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -473,10 +436,7 @@ async function run() {
         const events = await eventsCollection.find().toArray();
         res.status(200).json(events);
       } catch (error) {
-        console.error("Error fetching events:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to retrieve events. Please try again later." });
+        res.status(500).json({ message: "Error fetching events", error });
       }
     });
 
@@ -487,6 +447,7 @@ async function run() {
 
         let query = {};
 
+        // If the user is NOT an admin/superadmin, apply filtering
         if (adminRole !== "admin" && adminRole !== "superadmin") {
           query = {
             $or: [
@@ -496,13 +457,13 @@ async function run() {
           };
         }
 
+        // Fetch notices based on the query
         const notices = await noticeCollection.find(query).toArray();
+
         res.status(200).json(notices);
       } catch (error) {
         console.error("Error fetching notices:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to retrieve notices. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -527,9 +488,7 @@ async function run() {
           !targetAudience ||
           !department
         ) {
-          return res
-            .status(400)
-            .json({ message: "Validation Error: All fields are required." });
+          return res.status(400).json({ message: "All fields are required" });
         }
 
         const newNotice = {
@@ -546,19 +505,15 @@ async function run() {
         const result = await noticeCollection.insertOne(newNotice);
 
         if (!result.insertedId) {
-          return res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to create the notice." });
+          return res.status(500).json({ message: "Failed to create notice" });
         }
 
         res
           .status(201)
-          .json({ message: "Notice created successfully.", notice: newNotice });
+          .json({ message: "Notice created successfully", notice: newNotice });
       } catch (error) {
         console.error("Error creating notice:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to create the notice. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -571,17 +526,13 @@ async function run() {
         });
 
         if (!notice) {
-          return res
-            .status(404)
-            .json({ message: "Notice not found: The requested notice does not exist." });
+          return res.status(404).json({ message: "Notice not found" });
         }
 
-        res.status(200).json(notice);
+        res.json(notice);
       } catch (error) {
         console.error("Error fetching notice:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to retrieve the notice. Please try again later." });
+        res.status(500).json({ message: "Internal server error" });
       }
     });
 
@@ -599,6 +550,7 @@ async function run() {
           department,
         } = req.body;
 
+        // Ensure required fields are provided
         if (
           !title ||
           !category ||
@@ -607,42 +559,38 @@ async function run() {
           !targetAudience ||
           !department
         ) {
-          return res
-            .status(400)
-            .json({ message: "Validation Error: All fields are required." });
+          return res.status(400).json({ message: "All fields are required" });
         }
 
+        // Construct the update object
         const updatedNotice = {
           title,
           category,
           description,
-          image,
+          image, // Can be new or existing image URL
           date,
           targetAudience,
           department,
           updatedAt: new Date(),
         };
 
+        // Find and update the notice
         const result = await noticeCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: updatedNotice }
         );
 
         if (result.matchedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "Notice not found: The requested notice does not exist." });
+          return res.status(404).json({ message: "Notice not found" });
         }
 
         res.status(200).json({
-          message: "Notice updated successfully. Your changes have been saved.",
+          message: "Notice updated successfully",
           notice: updatedNotice,
         });
       } catch (error) {
         console.error("Error updating notice:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to update the notice. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -656,17 +604,13 @@ async function run() {
         });
 
         if (result.deletedCount === 0) {
-          return res
-            .status(404)
-            .json({ message: "Notice not found: The requested notice does not exist." });
+          return res.status(404).json({ message: "Notice not found" });
         }
 
-        res.status(200).json({ message: "Notice deleted successfully. The notice has been removed." });
+        res.status(200).json({ message: "Notice deleted successfully" });
       } catch (error) {
         console.error("Error deleting notice:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to delete the notice. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -675,39 +619,36 @@ async function run() {
       try {
         const { name, date, time, venue, details, image } = req.body;
 
+        // Ensure required fields are provided
         if (!name || !date || !time || !venue || !details) {
-          return res
-            .status(400)
-            .json({ message: "Validation Error: All fields are required." });
+          return res.status(400).json({ message: "All fields are required" });
         }
 
+        // Construct the new event object (including image URL)
         const newEvent = {
           name,
           date,
           time,
           venue,
           details,
-          image: image || null,
+          image: image || null, // Store image URL if provided
           createdAt: new Date(),
         };
 
+        // Insert the event into the database
         const result = await eventsCollection.insertOne(newEvent);
 
         if (!result.insertedId) {
-          return res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to create the event." });
+          return res.status(500).json({ message: "Failed to create event" });
         }
 
         res.status(201).json({
-          message: "Event created successfully.",
+          message: "Event created successfully",
           event: newEvent,
         });
       } catch (error) {
         console.error("Error creating event:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to create the event. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -718,17 +659,13 @@ async function run() {
         const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
 
         if (!event) {
-          return res
-            .status(404)
-            .json({ message: "Event not found: The requested event does not exist." });
+          return res.status(404).json({ message: "Event not found" });
         }
 
         res.status(200).json(event);
       } catch (error) {
         console.error("Error fetching event:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to retrieve the event. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -737,29 +674,25 @@ async function run() {
       try {
         const { id } = req.params;
 
+        // Check if the event exists
         const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
         if (!event) {
-          return res
-            .status(404)
-            .json({ message: "Event not found: The requested event does not exist." });
+          return res.status(404).json({ message: "Event not found" });
         }
 
+        // Delete the event
         const result = await eventsCollection.deleteOne({
           _id: new ObjectId(id),
         });
 
         if (result.deletedCount === 0) {
-          return res
-            .status(500)
-            .json({ message: "Internal Server Error: Unable to delete the event." });
+          return res.status(500).json({ message: "Failed to delete event" });
         }
 
-        res.status(200).json({ message: "Event deleted successfully. The event has been removed." });
+        res.status(200).json({ message: "Event deleted successfully" });
       } catch (error) {
         console.error("Error deleting event:", error);
-        res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to delete the event. Please try again later." });
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -770,9 +703,7 @@ async function run() {
         const { name, date, time, venue, details, image } = req.body;
 
         if (!name || !date || !time || !venue || !details) {
-          return res
-            .status(400)
-            .json({ message: "Validation Error: All fields are required." });
+          return res.status(400).json({ message: "All fields are required" });
         }
 
         const updatedEvent = {
@@ -790,21 +721,14 @@ async function run() {
           { $set: updatedEvent }
         );
 
-        if (!result.matchedCount) {
-          return res
-            .status(404)
-            .json({ message: "Event not found: The requested event does not exist." });
-        }
+        if (!result.matchedCount)
+          return res.status(404).json({ message: "Event not found" });
 
-        res.status(200).json({
-          message: "Event updated successfully. Your changes have been saved.",
-          event: updatedEvent,
-        });
-      } catch (error) {
-        console.error("Error updating event:", error);
         res
-          .status(500)
-          .json({ message: "Internal Server Error: Unable to update the event. Please try again later." });
+          .status(200)
+          .json({ message: "Event updated successfully", event: updatedEvent });
+      } catch (error) {
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
@@ -812,20 +736,17 @@ async function run() {
     app.post("/upload-image", upload.single("image"), async (req, res) => {
       try {
         if (!req.file) {
-          return res
-            .status(400)
-            .json({ message: "Validation Error: No file uploaded." });
+          return res.status(400).json({ message: "No file uploaded" });
         }
         res.status(200).json({
           success: true,
-          message: "Image uploaded successfully.",
+          message: "Image uploaded successfully",
           imageUrl: req.file.path,
         });
       } catch (error) {
-        console.error("Error uploading image:", error);
         res
           .status(500)
-          .json({ success: false, message: "Internal Server Error: Unable to upload the image. Please try again later." });
+          .json({ success: false, message: "Error uploading image" });
       }
     });
 
