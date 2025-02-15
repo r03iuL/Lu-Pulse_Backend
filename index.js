@@ -256,6 +256,62 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
+    
+    // API to Update User Profile
+    app.patch("/users/:email", verifyToken, async (req, res) => {
+      const { email } = req.params;
+      const { fullName, designation, image } = req.body;
+
+      try {
+        // Check if user is trying to update their own profile or if they're an admin
+        if (
+          email !== req.user.email &&
+          req.user.adminRole !== "admin" &&
+          req.user.adminRole !== "superadmin"
+        ) {
+          return res
+            .status(403)
+            .json({
+              message: "Forbidden: You can only update your own profile.",
+            });
+        }
+
+        // Validate that required fields are provided
+        if (!fullName || !designation) {
+          return res
+            .status(400)
+            .json({ message: "Full Name and Designation are required." });
+        }
+
+        const updatedUser = { fullName, designation };
+
+        // If an image URL is being provided, use it (no need to handle image upload here)
+        if (image) {
+          updatedUser.image = image; // Set the image URL directly
+        }
+
+        // Update the user document in MongoDB
+        const result = await userCollection.updateOne(
+          { email },
+          { $set: updatedUser }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res
+            .status(404)
+            .json({ message: "User not found or no changes made" });
+        }
+
+        // Return success message with updated user data
+        res.status(200).json({
+          message: "Profile updated successfully",
+          user: { ...updatedUser, email },
+        });
+      } catch (error) {
+        console.error("Error updating user profile:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
 
     // API to Update User Role to Admin
     app.patch(
@@ -443,12 +499,10 @@ async function run() {
           return res.status(404).json({ message: "Notice not found" });
         }
 
-        res
-          .status(200)
-          .json({
-            message: "Notice updated successfully",
-            notice: updatedNotice,
-          });
+        res.status(200).json({
+          message: "Notice updated successfully",
+          notice: updatedNotice,
+        });
       } catch (error) {
         console.error("Error updating notice:", error);
         res.status(500).json({ message: "Internal Server Error" });
@@ -471,6 +525,124 @@ async function run() {
         res.status(200).json({ message: "Notice deleted successfully" });
       } catch (error) {
         console.error("Error deleting notice:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // API to Create New Event with Image
+    app.post("/events", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { name, date, time, venue, details, image } = req.body;
+
+        // Ensure required fields are provided
+        if (!name || !date || !time || !venue || !details) {
+          return res.status(400).json({ message: "All fields are required" });
+        }
+
+        // Construct the new event object (including image URL)
+        const newEvent = {
+          name,
+          date,
+          time,
+          venue,
+          details,
+          image: image || null, // Store image URL if provided
+          createdAt: new Date(),
+        };
+
+        // Insert the event into the database
+        const result = await eventsCollection.insertOne(newEvent);
+
+        if (!result.insertedId) {
+          return res.status(500).json({ message: "Failed to create event" });
+        }
+
+        res.status(201).json({
+          message: "Event created successfully",
+          event: newEvent,
+        });
+      } catch (error) {
+        console.error("Error creating event:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // API to Fetch a Specific Event by ID
+    app.get("/events/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!event) {
+          return res.status(404).json({ message: "Event not found" });
+        }
+
+        res.status(200).json(event);
+      } catch (error) {
+        console.error("Error fetching event:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // API to Delete an Event by ID
+    app.delete("/events/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        // Check if the event exists
+        const event = await eventsCollection.findOne({ _id: new ObjectId(id) });
+        if (!event) {
+          return res.status(404).json({ message: "Event not found" });
+        }
+
+        // Delete the event
+        const result = await eventsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(500).json({ message: "Failed to delete event" });
+        }
+
+        res.status(200).json({ message: "Event deleted successfully" });
+      } catch (error) {
+        console.error("Error deleting event:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // API to Update an Event
+    app.put("/events/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { name, date, time, venue, details, image } = req.body;
+
+        if (!name || !date || !time || !venue || !details) {
+          return res.status(400).json({ message: "All fields are required" });
+        }
+
+        const updatedEvent = {
+          name,
+          date,
+          time,
+          venue,
+          details,
+          image,
+          updatedAt: new Date(),
+        };
+
+        const result = await eventsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedEvent }
+        );
+
+        if (!result.matchedCount)
+          return res.status(404).json({ message: "Event not found" });
+
+        res
+          .status(200)
+          .json({ message: "Event updated successfully", event: updatedEvent });
+      } catch (error) {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
