@@ -14,7 +14,7 @@ const port = process.env.PORT || 5000;
 // Middlewares
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: ["http://localhost:5173", "https://lupulse1.netlify.app"],
     credentials: true,
   })
 );
@@ -39,7 +39,10 @@ const storage = new CloudinaryStorage({
 const upload = multer({ storage: storage });
 
 // MongoDB Connection
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lpjeu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+//const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lpjeu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = process.env.MONGODB_URI;
+console.log(uri);
+
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -51,7 +54,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect to MongoDB
-    await client.connect();
+    //await client.connect();
 
     // Database & Collections
     const database = client.db("LuPulse");
@@ -154,8 +157,8 @@ async function run() {
 
         // Store JWT in HttpOnly cookie
         res.cookie("token", token, {
-          httpOnly: true,
-          secure: false,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
         });
 
         res.status(200).json({ message: "Login successful", success: true });
@@ -167,7 +170,11 @@ async function run() {
 
     // API for User Authentication (Logout) - Clears JWT Token
     app.post("/logout", (req, res) => {
-      res.clearCookie("token", { httpOnly: true, secure: false });
+      res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+      });
       res.status(200).json({ message: "Logout successful" });
     });
 
@@ -256,7 +263,7 @@ async function run() {
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
-    
+
     // API to Update User Profile
     app.patch("/users/:email", verifyToken, async (req, res) => {
       const { email } = req.params;
@@ -269,11 +276,9 @@ async function run() {
           req.user.adminRole !== "admin" &&
           req.user.adminRole !== "superadmin"
         ) {
-          return res
-            .status(403)
-            .json({
-              message: "Forbidden: You can only update your own profile.",
-            });
+          return res.status(403).json({
+            message: "Forbidden: You can only update your own profile.",
+          });
         }
 
         // Validate that required fields are provided
