@@ -39,9 +39,7 @@ const storage = new CloudinaryStorage({
 const upload = multer({ storage: storage });
 
 // MongoDB Connection
-//const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lpjeu.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 const uri = process.env.MONGODB_URI;
-console.log(uri);
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -319,100 +317,118 @@ async function run() {
     });
 
     // API to Update User Role to Admin
-    app.patch("/users/:email/role", verifyToken, verifySuperAdmin, async (req, res) => {
-      try {
-        const { email } = req.params;
-    
-        // Check if user exists
-        const user = await userCollection.findOne({ email });
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
+    app.patch(
+      "/users/:email/role",
+      verifyToken,
+      verifySuperAdmin,
+      async (req, res) => {
+        try {
+          const { email } = req.params;
+
+          // Check if user exists
+          const user = await userCollection.findOne({ email });
+          if (!user) {
+            return res.status(404).json({ message: "User not found" });
+          }
+
+          // Prevent promoting SuperAdmins or existing admins
+          if (user.adminRole === "admin" || user.adminRole === "superadmin") {
+            return res
+              .status(400)
+              .json({ message: "User is already an Admin or SuperAdmin" });
+          }
+
+          // Promote user to Admin
+          const result = await userCollection.updateOne(
+            { email },
+            { $set: { adminRole: "admin" } }
+          );
+
+          if (result.modifiedCount === 0) {
+            return res
+              .status(500)
+              .json({ message: "Failed to promote user to Admin" });
+          }
+
+          res
+            .status(200)
+            .json({ message: "User promoted to Admin successfully" });
+        } catch (error) {
+          console.error("Error promoting user:", error);
+          res.status(500).json({ message: "Internal Server Error" });
         }
-    
-        // Prevent promoting SuperAdmins or existing admins
-        if (user.adminRole === "admin" || user.adminRole === "superadmin") {
-          return res.status(400).json({ message: "User is already an Admin or SuperAdmin" });
-        }
-    
-        // Promote user to Admin
-        const result = await userCollection.updateOne(
-          { email },
-          { $set: { adminRole: "admin" } }
-        );
-    
-        if (result.modifiedCount === 0) {
-          return res.status(500).json({ message: "Failed to promote user to Admin" });
-        }
-    
-        res.status(200).json({ message: "User promoted to Admin successfully" });
-      } catch (error) {
-        console.error("Error promoting user:", error);
-        res.status(500).json({ message: "Internal Server Error" });
       }
-    });
-    
-    // API to Demote an Admin to Regular User
-app.patch("/users/:email/demote", verifyToken, verifySuperAdmin, async (req, res) => {
-  try {
-    const { email } = req.params;
-
-    // Find the user by email
-    const user = await userCollection.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: "Admin not found" });
-    }
-
-    // Prevent demotion of superadmin
-    if (user.adminRole === "superadmin") {
-      return res.status(403).json({ message: "Superadmins cannot be demoted" });
-    }
-
-    // Update adminRole to "user"
-    const result = await userCollection.updateOne(
-      { email },
-      { $set: { adminRole: "user" } }
     );
 
-    if (result.modifiedCount === 0) {
-      return res.status(400).json({ message: "Failed to demote admin" });
-    }
+    // API to Demote an Admin to Regular User
+    app.patch(
+      "/users/:email/demote",
+      verifyToken,
+      verifySuperAdmin,
+      async (req, res) => {
+        try {
+          const { email } = req.params;
 
-    res.status(200).json({ message: "Admin demoted successfully" });
-  } catch (error) {
-    console.error("Error demoting admin:", error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-});
-    
+          // Find the user by email
+          const user = await userCollection.findOne({ email });
+          if (!user) {
+            return res.status(404).json({ message: "Admin not found" });
+          }
+
+          // Prevent demotion of superadmin
+          if (user.adminRole === "superadmin") {
+            return res
+              .status(403)
+              .json({ message: "Superadmins cannot be demoted" });
+          }
+
+          // Update adminRole to "user"
+          const result = await userCollection.updateOne(
+            { email },
+            { $set: { adminRole: "user" } }
+          );
+
+          if (result.modifiedCount === 0) {
+            return res.status(400).json({ message: "Failed to demote admin" });
+          }
+
+          res.status(200).json({ message: "Admin demoted successfully" });
+        } catch (error) {
+          console.error("Error demoting admin:", error);
+          res.status(500).json({ message: "Internal Server Error" });
+        }
+      }
+    );
 
     // API to Delete User
     app.delete("/users/:email", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const { email } = req.params;
-    
+
         // Prevent SuperAdmin from being deleted
         const user = await userCollection.findOne({ email });
         if (!user) {
           return res.status(404).json({ message: "User not found" });
         }
         if (user.adminRole === "superadmin") {
-          return res.status(403).json({ message: "Cannot delete a Super Admin" });
+          return res
+            .status(403)
+            .json({ message: "Cannot delete a Super Admin" });
         }
-    
+
         // Delete user from database
         const result = await userCollection.deleteOne({ email });
-    
+
         if (result.deletedCount === 0) {
           return res.status(500).json({ message: "Failed to delete user" });
         }
-    
+
         res.status(200).json({ message: "User deleted successfully" });
       } catch (error) {
         console.error("Error deleting user:", error);
         res.status(500).json({ message: "Internal Server Error" });
       }
     });
-    
 
     // API to Fetch All Events
     app.get("/events", async (req, res) => {
