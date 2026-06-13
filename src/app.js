@@ -10,7 +10,17 @@ const app = express();
 app.use(logRequest);
 
 // Global middlewares
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: allowedOrigins.length ? allowedOrigins : true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json());
 app.use(cookieParser());
 
