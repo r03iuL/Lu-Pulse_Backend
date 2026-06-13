@@ -14,21 +14,17 @@ const login = async (req, res) => {
     const user = await User.findOneByEmail(email);
 
     if (!user) {
-      return res
-        .status(404)
-        .json({
-          message:
-            "User not found: The provided email does not match any account.",
-        });
+      return res.status(404).json({
+        message:
+          "User not found: The provided email does not match any account.",
+      });
     }
 
     if (!emailVerified) {
-      return res
-        .status(403)
-        .json({
-          message:
-            "Email not verified: Please verify your email before logging in.",
-        });
+      return res.status(403).json({
+        message:
+          "Email not verified: Please verify your email before logging in.",
+      });
     }
 
     const token = jwt.sign(
@@ -50,17 +46,22 @@ const login = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in ms
     });
 
+    // Also send the token in the response body so the frontend can store it
+    // in localStorage and use it as a Bearer token for cross-origin requests
+    // (browsers increasingly block third-party cookies across different domains).
     res
       .status(200)
-      .json({ message: "Login successful. Welcome back!", success: true });
+      .json({
+        message: "Login successful. Welcome back!",
+        success: true,
+        token,
+      });
   } catch (error) {
     console.error("Login Error:", error);
-    res
-      .status(500)
-      .json({
-        message:
-          "Internal Server Error: Unable to process your login request. Please try again later.",
-      });
+    res.status(500).json({
+      message:
+        "Internal Server Error: Unable to process your login request. Please try again later.",
+    });
   }
 };
 
