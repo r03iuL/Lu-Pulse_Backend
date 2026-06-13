@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const { logRequest, logError } = require('./middlewares/logMiddleware');
+const apiRouter = require('./routes/apiRouter');
 
 const app = express();
 
@@ -13,14 +14,8 @@ app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
 
-// Temporary route
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
-
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', message: 'Server is healthy' });
-});
+// API routes
+app.use('/', apiRouter);
 
 // Mount logError at the absolute bottom of the stack
 app.use(logError);
