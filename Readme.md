@@ -127,6 +127,12 @@ http://localhost:5000
 
 ## API Overview
 
+### **Health Check**
+
+| Method | Endpoint | Description                    | Auth   |
+| ------ | -------- | ------------------------------ | ------ |
+| `GET`  | `/`      | Service info, health, endpoints | Public |
+
 ### **Auth Routes** (prefix: `/auth`)
 
 | Method | Endpoint       | Description              | Auth   |
@@ -134,11 +140,12 @@ http://localhost:5000
 | `POST` | `/auth/login`  | User login, generate JWT | Public |
 | `POST` | `/auth/logout` | Clear JWT cookie         | Public |
 
+> **Note:** User registration (signup) is handled via `/users` routes or external identity provider.
+
 ### **User Routes** (prefix: `/users`)
 
 | Method   | Endpoint                  | Description              | Auth              |
 | -------- | ------------------------- | ------------------------ | ----------------- |
-| `POST`   | `/signup`                 | Register a new user      | Public            |
 | `GET`    | `/users`                  | Get all users            | Public            |
 | `GET`    | `/users/:email`           | Get user by email        | Auth (Self/Admin) |
 | `PATCH`  | `/users/:email`           | Update profile           | Auth (Self/Admin) |
@@ -178,14 +185,39 @@ http://localhost:5000
 
 ## Authentication Flow
 
-1. User logs in with verified credentials.
-2. Server generates a **JWT token** and stores it in a **HTTP-only cookie**.
-3. Protected routes verify this token using middleware:
+1. **User logs in** via `POST /auth/login` with verified credentials (`uid`, `email`, `emailVerified`).
+2. Server validates user exists in MongoDB and email is verified.
+3. Server generates a **JWT token** (7-day expiry) containing: `uid`, `email`, `emailVerified`, `adminRole`, `department`.
+4. Token is stored in an **HTTP-only cookie** (`secure`, `sameSite: none` in production).
+5. Token is **also returned in response body** for localStorage/Bearer token use (cross-origin compatibility).
+6. **Protected routes** verify token using middleware:
+   - `verifyToken` — Validates JWT, attaches user to `req.user`
+   - `verifyAdmin` — Requires `adminRole === 'admin' || 'superadmin'`
+   - `verifySuperAdmin` — Requires `adminRole === 'superadmin'`
+7. **Logout** via `POST /auth/logout` clears the cookie securely.
 
-   - `verifyToken` — Ensures valid login.
-   - `verifyAdmin` — Restricts access to admins and superadmins.
-   - `verifySuperAdmin` — Grants exclusive access to superadmins.
-4. On logout, the cookie is cleared securely.
+### Health Check Endpoint
+
+`GET /` returns service metadata and real-time health status:
+
+```json
+{
+  "service": "LuPulse API",
+  "tagline": "Your campus pulse - events, notices & community",
+  "version": "1.0.0",
+  "status": "operational",
+  "uptime": "2d 14h 32m",
+  "timestamp": "2026-06-13T10:30:00.000Z",
+  "environment": "production",
+  "database": { "status": "connected", "type": "MongoDB", "database": "LuPulse" },
+  "endpoints": { "auth": ["/login", "/logout", "/signup"], ... },
+  "repository": "https://github.com/r03iuL/Lu-Pulse_Backend"
+}
+```
+
+- **Uptime**: Calculated from `process.uptime()`
+- **Timestamp**: ISO 8601 at request time
+- **Database status**: Real-time MongoDB ping (`db.command({ ping: 1 })`)
 
 ---
 
