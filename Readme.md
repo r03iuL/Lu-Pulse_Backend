@@ -135,12 +135,11 @@ http://localhost:5000
 
 ### **Auth Routes** (prefix: `/auth`)
 
-| Method | Endpoint       | Description              | Auth   |
-| ------ | -------------- | ------------------------ | ------ |
-| `POST` | `/auth/login`  | User login, generate JWT | Public |
-| `POST` | `/auth/logout` | Clear JWT cookie         | Public |
-
-> **Note:** User registration (signup) is handled via `/users` routes or external identity provider.
+| Method | Endpoint        | Description                      | Auth   |
+| ------ | --------------- | -------------------------------- | ------ |
+| `POST` | `/auth/login`   | User login, generate JWT         | Public |
+| `POST` | `/auth/logout`  | Clear JWT cookie                 | Public |
+| `POST` | `/auth/signup`  | Register new user in database    | Public |
 
 ### **User Routes** (prefix: `/users`)
 
@@ -184,6 +183,27 @@ http://localhost:5000
 ---
 
 ## Authentication Flow
+
+### User Registration (Signup)
+
+1. **Client submits registration form** via `POST /auth/signup` with:
+   - `fullName` (required)
+   - `id` — student/employee ID (required)
+   - `email` — must be `@lus.ac.bd` domain (required)
+   - `userType` — `student`, `faculty`, or `staff` (required)
+   - `department` (required)
+   - `designation` — required for faculty/staff, auto-set to `Student` for students
+   - `image` — optional profile image URL (from Cloudinary upload)
+2. Server validates all required fields are present.
+3. Server checks for duplicate email in MongoDB.
+4. Server creates new user document with:
+   - `adminRole: "user"` (default)
+   - `createdAt: new Date()`
+5. Returns `201 Created` with `{ message: "Registration successful. Welcome to LuPulse!", user: userData }`.
+6. **Client then calls Firebase** `createUserWithEmailAndPassword` + `sendEmailVerification` to create the Firebase Auth account and send verification email.
+7. User verifies email via link in inbox.
+
+### User Login
 
 1. **User logs in** via `POST /auth/login` with verified credentials (`uid`, `email`, `emailVerified`).
 2. Server validates user exists in MongoDB and email is verified.
